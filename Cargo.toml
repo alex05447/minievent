@@ -1,0 +1,15 @@
+[package]
+name = "minievent"
+version = "0.1.0"
+authors = ["N/A <N/A>"]
+edition = "2018"
+
+[lib]
+name = "minievent"
+
+[dependencies]
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = [    "winbase"
+                                            ,"synchapi"
+                                            ,"winerror"
+                                            ,"handleapi"] }
