@@ -8,10 +8,6 @@ See [`event`](https://docs.microsoft.com/en-us/windows/win32/api/synchapi/nf-syn
 [`semaphore`](https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-createsemaphorea),
 [`Wait Functions`](https://docs.microsoft.com/en-us/windows/win32/sync/wait-functions) on MSDN.
 
-Run
-```
-cargo --doc
-```
-for documentation.
+Run `cargo --doc` for documentation.
 
 Uses [`winapi`](https://docs.rs/winapi/0.3.8/winapi/) on Windows.
