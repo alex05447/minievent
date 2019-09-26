@@ -9,11 +9,13 @@
 //!
 //! Uses [`winapi`](https://docs.rs/winapi/0.3.8/winapi/) on Windows.
 
-pub mod waitable;
 pub mod event;
 pub mod semaphore;
+pub mod waitable;
 
 pub use crate::event::Event;
 pub use crate::semaphore::Semaphore;
 
-pub use crate::waitable::{ WaitableResult, WaitablesResult, max_num_waitables, wait_for_one, wait_for_all };
+pub use crate::waitable::{
+    max_num_waitables, wait_for_all, wait_for_one, WaitableResult, WaitablesResult,
+};

@@ -27,7 +27,7 @@ pub enum WaitablesResult {
 /// Waitable object trait.
 pub trait Waitable {
     /// Blocks the thread until the waitable is signaled or the duration `d` expires.
-    fn wait(&self, d :Duration) -> WaitableResult;
+    fn wait(&self, d: Duration) -> WaitableResult;
 
     /// Blocks the thread until the waitable is signaled.
     fn wait_infinite(&self);
@@ -39,8 +39,4 @@ pub trait Waitable {
 mod win;
 
 #[cfg(windows)]
-pub use win::{
-    max_num_waitables
-    ,wait_for_all
-    ,wait_for_one
-};
+pub use win::{max_num_waitables, wait_for_all, wait_for_one};

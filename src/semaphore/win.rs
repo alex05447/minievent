@@ -1,16 +1,16 @@
-use std::ptr;
 use std::ffi::CString;
+use std::ptr;
 use std::time::Duration;
 
 use winapi::shared::minwindef::TRUE;
 use winapi::shared::winerror::WAIT_TIMEOUT;
-use winapi::um::winbase::{ WAIT_OBJECT_0, INFINITE };
-use winapi::um::winnt::HANDLE;
 use winapi::um::handleapi::CloseHandle;
+use winapi::um::synchapi::{ReleaseSemaphore, WaitForSingleObject};
 use winapi::um::winbase::CreateSemaphoreA;
-use winapi::um::synchapi::{ ReleaseSemaphore, WaitForSingleObject };
+use winapi::um::winbase::{INFINITE, WAIT_OBJECT_0};
+use winapi::um::winnt::HANDLE;
 
-use crate::waitable::{ Waitable, WaitableResult };
+use crate::waitable::{Waitable, WaitableResult};
 
 /// Waitable semaphore wrapper.
 /// See [`semaphore`](https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-createsemaphorea) on MSDN.
@@ -23,7 +23,7 @@ use crate::waitable::{ Waitable, WaitableResult };
 /// [`new`]: #method.new
 /// [`increment`]: #method.increment
 pub struct Semaphore {
-    handle :HANDLE,
+    handle: HANDLE,
 }
 
 impl Semaphore {
@@ -37,7 +37,7 @@ impl Semaphore {
     /// Panics if the OS event creation fails.
     ///
     /// [`increment`]: #method.increment
-    pub fn new(init_count :usize, max_count :usize, name :Option<&str>) -> Semaphore {
+    pub fn new(init_count: usize, max_count: usize, name: Option<&str>) -> Semaphore {
         assert!(
             init_count <= max_count,
             "`init_count` must be less or equal to `max_count`."
@@ -45,7 +45,9 @@ impl Semaphore {
 
         let name = if name.is_some() {
             if name.unwrap().len() > 0 {
-                CString::new(name.unwrap()).expect("Invalid semaphore name.").as_ptr()
+                CString::new(name.unwrap())
+                    .expect("Invalid semaphore name.")
+                    .as_ptr()
             } else {
                 ptr::null_mut()
             }
@@ -53,20 +55,14 @@ impl Semaphore {
             ptr::null_mut()
         };
 
-        let handle = unsafe { CreateSemaphoreA(
-            ptr::null_mut(),
-            init_count as i32,
-            max_count as i32,
-            name
-        ) };
+        let handle =
+            unsafe { CreateSemaphoreA(ptr::null_mut(), init_count as i32, max_count as i32, name) };
 
         if handle.is_null() {
             panic!("Semaphore creation failed.");
         }
 
-        Semaphore {
-            handle
-        }
+        Semaphore { handle }
     }
 
     /// Increments the semaphore's internal counter by `count`.
@@ -78,16 +74,11 @@ impl Semaphore {
     /// On success returns the previous counter value.
     ///
     /// [`new`]: #method.new
-    pub fn increment(&self, count :usize) -> Result<usize, ()> {
-        let mut prev_count :i32 = 0;
+    pub fn increment(&self, count: usize) -> Result<usize, ()> {
+        let mut prev_count: i32 = 0;
 
-        let result = unsafe {
-            ReleaseSemaphore(
-                self.handle
-                ,count as i32
-                ,&mut prev_count as *mut i32
-            )
-        };
+        let result =
+            unsafe { ReleaseSemaphore(self.handle, count as i32, &mut prev_count as *mut i32) };
 
         if result == TRUE {
             Ok(prev_count as usize)
@@ -109,10 +100,8 @@ impl Semaphore {
         self.increment(1)
     }
 
-    fn wait_internal(&self, ms :u32) -> WaitableResult {
-        let result = unsafe {
-            WaitForSingleObject(self.handle, ms)
-        };
+    fn wait_internal(&self, ms: u32) -> WaitableResult {
+        let result = unsafe { WaitForSingleObject(self.handle, ms) };
 
         match result {
             WAIT_OBJECT_0 => WaitableResult::Signaled,
@@ -141,7 +130,7 @@ impl Waitable for Semaphore {
     /// Panics if the OS function fails or if the semaphore was abandoned.
     ///
     /// [`increment`]: #method.increment
-    fn wait(&self, d :Duration) -> WaitableResult {
+    fn wait(&self, d: Duration) -> WaitableResult {
         let ms = d.as_millis();
         debug_assert!(ms <= std::u32::MAX as u128);
         let ms = ms as u32;
@@ -170,7 +159,7 @@ impl Waitable for Semaphore {
 }
 
 #[cfg(test)]
-use std::{ thread, sync::Arc, time::Instant };
+use std::{sync::Arc, thread, time::Instant};
 
 #[cfg(test)]
 mod tests {
@@ -312,9 +301,9 @@ mod tests {
         assert!(res_2.1.as_millis() >= 500);
 
         if res_1.1.as_millis() > res_2.1.as_millis() {
-            assert!( res_1.1.as_millis() - res_2.1.as_millis() >= 500 );
+            assert!(res_1.1.as_millis() - res_2.1.as_millis() >= 500);
         } else {
-            assert!( res_2.1.as_millis() - res_1.1.as_millis() >= 500 );
+            assert!(res_2.1.as_millis() - res_1.1.as_millis() >= 500);
         }
 
         // Not signaled.

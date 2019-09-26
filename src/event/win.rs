@@ -1,15 +1,15 @@
-use std::ptr;
 use std::ffi::CString;
+use std::ptr;
 use std::time::Duration;
 
 use winapi::shared::minwindef::FALSE;
 use winapi::shared::winerror::WAIT_TIMEOUT;
-use winapi::um::winbase::{ WAIT_OBJECT_0, INFINITE };
-use winapi::um::winnt::HANDLE;
-use winapi::um::synchapi::{ CreateEventA, SetEvent, ResetEvent, WaitForSingleObject };
 use winapi::um::handleapi::CloseHandle;
+use winapi::um::synchapi::{CreateEventA, ResetEvent, SetEvent, WaitForSingleObject};
+use winapi::um::winbase::{INFINITE, WAIT_OBJECT_0};
+use winapi::um::winnt::HANDLE;
 
-use crate::waitable::{ Waitable, WaitableResult };
+use crate::waitable::{Waitable, WaitableResult};
 
 /// Waitable event wrapper.
 /// See [`event`](https://docs.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createeventa) on MSDN.
@@ -22,7 +22,7 @@ use crate::waitable::{ Waitable, WaitableResult };
 /// [`set`]: #method.set
 /// [`reset`]: #method.reset
 pub struct Event {
-    handle :HANDLE,
+    handle: HANDLE,
 }
 
 impl Event {
@@ -32,7 +32,7 @@ impl Event {
     /// # Panics
     ///
     /// Panics if the OS event creation fails.
-    pub fn new_auto(signaled :bool, name :Option<&str>) -> Event {
+    pub fn new_auto(signaled: bool, name: Option<&str>) -> Event {
         Event::new(false, signaled, name)
     }
 
@@ -42,7 +42,7 @@ impl Event {
     /// # Panics
     ///
     /// Panics if the OS event creation fails.
-    pub fn new_manual(signaled :bool, name :Option<&str>) -> Event {
+    pub fn new_manual(signaled: bool, name: Option<&str>) -> Event {
         Event::new(true, signaled, name)
     }
 
@@ -55,9 +55,7 @@ impl Event {
     ///
     /// [`reset`]: #method.reset
     pub fn set(&self) {
-        let result = unsafe {
-            SetEvent(self.handle)
-        };
+        let result = unsafe { SetEvent(self.handle) };
 
         assert!(result != FALSE);
     }
@@ -69,20 +67,20 @@ impl Event {
     /// Panics if the OS function fails.
     ///
     pub fn reset(&self) {
-        let result = unsafe {
-            ResetEvent(self.handle)
-        };
+        let result = unsafe { ResetEvent(self.handle) };
 
         assert!(result != FALSE);
     }
 
-    fn new(manual :bool, signaled :bool, name :Option<&str>) -> Event {
+    fn new(manual: bool, signaled: bool, name: Option<&str>) -> Event {
         let manual = if manual { 1 } else { 0 };
         let signaled = if signaled { 1 } else { 0 };
 
         let name = if name.is_some() {
             if name.unwrap().len() > 0 {
-                CString::new(name.unwrap()).expect("Invalid event name.").as_ptr()
+                CString::new(name.unwrap())
+                    .expect("Invalid event name.")
+                    .as_ptr()
             } else {
                 ptr::null_mut()
             }
@@ -90,26 +88,17 @@ impl Event {
             ptr::null_mut()
         };
 
-        let handle = unsafe { CreateEventA(
-            ptr::null_mut(),
-            manual,
-            signaled,
-            name
-        ) };
+        let handle = unsafe { CreateEventA(ptr::null_mut(), manual, signaled, name) };
 
         if handle.is_null() {
             panic!("Event creation failed.");
         }
 
-        Event {
-            handle
-        }
+        Event { handle }
     }
 
-    fn wait_internal(&self, ms :u32) -> WaitableResult {
-        let result = unsafe {
-            WaitForSingleObject(self.handle, ms)
-        };
+    fn wait_internal(&self, ms: u32) -> WaitableResult {
+        let result = unsafe { WaitForSingleObject(self.handle, ms) };
 
         match result {
             WAIT_OBJECT_0 => WaitableResult::Signaled,
@@ -138,7 +127,7 @@ impl Waitable for Event {
     /// Panics if the OS function fails or if the event was abandoned.
     ///
     /// [`set`]: #method.set
-    fn wait(&self, d :Duration) -> WaitableResult {
+    fn wait(&self, d: Duration) -> WaitableResult {
         let ms = d.as_millis();
         debug_assert!(ms <= std::u32::MAX as u128);
         let ms = ms as u32;
@@ -166,13 +155,13 @@ impl Waitable for Event {
 }
 
 #[cfg(test)]
-use std::{ thread, sync::Arc, time::Instant };
+use std::{sync::Arc, thread, time::Instant};
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use crate::waitable::{ WaitablesResult, wait_for_one, wait_for_all };
+    use crate::waitable::{wait_for_all, wait_for_one, WaitablesResult};
 
     #[test]
     fn manual_reset_signaled_method() {
@@ -227,8 +216,7 @@ mod tests {
         assert!(res == WaitableResult::Signaled);
 
         let res = wait_for_one(&w, Duration::from_secs(1_000_000)); // And still signaled.
-        assert!(res == WaitablesResult::OneSignaled(0) ||
-                res == WaitablesResult::OneSignaled(1) );
+        assert!(res == WaitablesResult::OneSignaled(0) || res == WaitablesResult::OneSignaled(1));
 
         e0.reset(); // Not anymore.
 
@@ -260,8 +248,7 @@ mod tests {
         assert!(res == WaitableResult::Signaled);
 
         let res = wait_for_one(&w, Duration::from_secs(1_000_000));
-        assert!(res == WaitablesResult::OneSignaled(0) ||
-                res == WaitablesResult::OneSignaled(1) );
+        assert!(res == WaitablesResult::OneSignaled(0) || res == WaitablesResult::OneSignaled(1));
     }
 
     #[test]
@@ -411,9 +398,9 @@ mod tests {
         assert!(res_2.1.as_millis() >= 500);
 
         if res_1.1.as_millis() > res_2.1.as_millis() {
-            assert!( res_1.1.as_millis() - res_2.1.as_millis() >= 500 );
+            assert!(res_1.1.as_millis() - res_2.1.as_millis() >= 500);
         } else {
-            assert!( res_2.1.as_millis() - res_1.1.as_millis() >= 500 );
+            assert!(res_2.1.as_millis() - res_1.1.as_millis() >= 500);
         }
 
         // Not signaled.
