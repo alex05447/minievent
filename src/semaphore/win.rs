@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn signaled_free_function() {
         let s = Semaphore::new(1, 1, None); // Signaled.
-        let w = [&s as &Waitable];
+        let w = [&s as &dyn Waitable];
 
         let res = wait_for_all(&w, Duration::from_secs(1_000_000)); // Not signaled.
         assert!(res == WaitableResult::Signaled);
@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn unsignaled_free_function() {
         let s = Semaphore::new(0, 1, None); // Not signaled.
-        let w = [&s as &Waitable];
+        let w = [&s as &dyn Waitable];
 
         let res = wait_for_all(&w, Duration::from_millis(1)); // Not signaled.
         assert!(res == WaitableResult::Timeout);

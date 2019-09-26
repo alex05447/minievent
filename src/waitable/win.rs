@@ -27,7 +27,7 @@ pub fn max_num_waitables() -> usize {
 /// Panics if the len of `waitables` exceeds the value returned by [`max_num_waitables`].
 ///
 /// [`max_num_waitables`]: fn.max_num_waitables.html
-pub fn wait_for_all(waitables: &[&Waitable], d: Duration) -> WaitableResult {
+pub fn wait_for_all(waitables: &[&dyn Waitable], d: Duration) -> WaitableResult {
     match wait_for_events_internal(waitables, d, true) {
         WaitablesResult::AllSignaled => WaitableResult::Signaled,
         WaitablesResult::Timeout => WaitableResult::Timeout,
@@ -44,12 +44,12 @@ pub fn wait_for_all(waitables: &[&Waitable], d: Duration) -> WaitableResult {
 /// Panics if the len of `waitables` exceeds the value returned by [`max_num_waitables`].
 ///
 /// [`max_num_waitables`]: fn.max_num_waitables.html
-pub fn wait_for_one(waitables: &[&Waitable], d: Duration) -> WaitablesResult {
+pub fn wait_for_one(waitables: &[&dyn Waitable], d: Duration) -> WaitablesResult {
     wait_for_events_internal(waitables, d, false)
 }
 
 fn wait_for_events_internal(
-    waitables: &[&Waitable],
+    waitables: &[&dyn Waitable],
     d: Duration,
     wait_for_all: bool,
 ) -> WaitablesResult {

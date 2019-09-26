@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn manual_reset_signaled_free_function() {
         let e = Event::new_manual(true, None); // Signaled.
-        let w = [&e as &Waitable];
+        let w = [&e as &dyn Waitable];
 
         let res = wait_for_all(&w, Duration::from_secs(1_000_000)); // Still signaled.
         assert!(res == WaitableResult::Signaled);
@@ -210,7 +210,7 @@ mod tests {
     fn manual_reset_signaled_free_function_multiple() {
         let e0 = Event::new_manual(true, None);
         let e1 = Event::new_manual(true, None);
-        let w = [&e0 as &Waitable, &e1 as &Waitable]; // Signaled.
+        let w = [&e0 as &dyn Waitable, &e1 as &dyn Waitable]; // Signaled.
 
         let res = wait_for_all(&w, Duration::from_secs(1_000_000)); // Still signaled.
         assert!(res == WaitableResult::Signaled);
