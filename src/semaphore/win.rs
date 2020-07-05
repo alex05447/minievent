@@ -1,16 +1,16 @@
-use std::ffi::CString;
-use std::ptr;
-use std::time::Duration;
-
-use winapi::shared::minwindef::TRUE;
-use winapi::shared::winerror::WAIT_TIMEOUT;
-use winapi::um::handleapi::CloseHandle;
-use winapi::um::synchapi::{ReleaseSemaphore, WaitForSingleObject};
-use winapi::um::winbase::CreateSemaphoreA;
-use winapi::um::winbase::{INFINITE, WAIT_OBJECT_0};
-use winapi::um::winnt::HANDLE;
-
-use crate::waitable::{Waitable, WaitableResult};
+use {
+    crate::{SemaphoreError, Waitable, WaitableResult},
+    std::{ffi::CString, io, ptr, time::Duration},
+    winapi::{
+        shared::{minwindef::TRUE, winerror::WAIT_TIMEOUT},
+        um::{
+            handleapi::CloseHandle,
+            synchapi::{ReleaseSemaphore, WaitForSingleObject},
+            winbase::{CreateSemaphoreA, INFINITE, WAIT_OBJECT_0},
+            winnt::HANDLE,
+        },
+    },
+};
 
 /// Waitable semaphore wrapper.
 /// See [`semaphore`](https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-createsemaphorea) on MSDN.
@@ -20,6 +20,8 @@ use crate::waitable::{Waitable, WaitableResult};
 /// When [`increment`] is called with `count` argument, at most `count` threads
 /// will wake up and the counter will be decremented for each woken up thread.
 ///
+/// Closes the owned OS event handle when dropped.
+///
 /// [`new`]: #method.new
 /// [`increment`]: #method.increment
 pub struct Semaphore {
@@ -27,27 +29,30 @@ pub struct Semaphore {
 }
 
 impl Semaphore {
-    /// Creates a new semaphore.
-    /// `init_count` - initializes the internal counter value.
+    /// Creates a new semaphore (or tries to reuse based on `name`).
+    ///
+    /// `init_count` - initializes the internal counter value. Clamped to be less or equal to `max_count`.
     /// `max_count` - determines the maximum value the internal counter may be incremented to
     /// before the call to [`increment`] fails.
+    /// `name` - see the [`docs`](https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-createsemaphorea).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the OS event creation fails.
+    /// Returns an error if the OS event creation failed, if `name` was invalid - e.g. contained nul bytes.
     ///
     /// [`increment`]: #method.increment
-    pub fn new(init_count: usize, max_count: usize, name: Option<&str>) -> Semaphore {
-        assert!(
-            init_count <= max_count,
-            "`init_count` must be less or equal to `max_count`."
-        );
+    pub fn new(
+        mut init_count: usize,
+        max_count: usize,
+        name: Option<&str>,
+    ) -> Result<Semaphore, SemaphoreError> {
+        use SemaphoreError::*;
 
-        let name = if name.is_some() {
-            if name.unwrap().len() > 0 {
-                CString::new(name.unwrap())
-                    .expect("Invalid semaphore name.")
-                    .as_ptr()
+        init_count = init_count.min(max_count);
+
+        let name = if let Some(name) = name {
+            if name.len() > 0 {
+                CString::new(name).map_err(|_| InvalidName)?.as_ptr()
             } else {
                 ptr::null_mut()
             }
@@ -59,10 +64,10 @@ impl Semaphore {
             unsafe { CreateSemaphoreA(ptr::null_mut(), init_count as i32, max_count as i32, name) };
 
         if handle.is_null() {
-            panic!("Semaphore creation failed.");
+            Err(FailedToCreate(io::Error::last_os_error()))
+        } else {
+            Ok(Semaphore { handle })
         }
-
-        Semaphore { handle }
     }
 
     /// Increments the semaphore's internal counter by `count`.
@@ -74,7 +79,7 @@ impl Semaphore {
     /// On success returns the previous counter value.
     ///
     /// [`new`]: #method.new
-    pub fn increment(&self, count: usize) -> Result<usize, ()> {
+    pub fn increment(&self, count: usize) -> Result<usize, SemaphoreError> {
         let mut prev_count: i32 = 0;
 
         let result =
@@ -83,7 +88,7 @@ impl Semaphore {
         if result == TRUE {
             Ok(prev_count as usize)
         } else {
-            Err(())
+            Err(SemaphoreError::FailedToIncrement(io::Error::last_os_error()))
         }
     }
 
@@ -96,17 +101,17 @@ impl Semaphore {
     /// On success returns the previous counter value.
     ///
     /// [`new`]: #method.new
-    pub fn increment_one(&self) -> Result<usize, ()> {
+    pub fn increment_one(&self) -> Result<usize, SemaphoreError> {
         self.increment(1)
     }
 
-    fn wait_internal(&self, ms: u32) -> WaitableResult {
+    fn wait_impl(&self, ms: u32) -> Result<WaitableResult, SemaphoreError> {
         let result = unsafe { WaitForSingleObject(self.handle, ms) };
 
         match result {
-            WAIT_OBJECT_0 => WaitableResult::Signaled,
-            WAIT_TIMEOUT => WaitableResult::Timeout,
-            _ => panic!("Semaphore wait error."),
+            WAIT_OBJECT_0 => Ok(WaitableResult::Signaled),
+            WAIT_TIMEOUT => Ok(WaitableResult::Timeout),
+            _ => Err(SemaphoreError::FailedToWait(io::Error::last_os_error())),
         }
     }
 }
@@ -123,156 +128,148 @@ unsafe impl Send for Semaphore {}
 unsafe impl Sync for Semaphore {}
 
 impl Waitable for Semaphore {
-    /// Blocks the thread until the semaphore is [`increment`]'ed or the duration `d` expires.
+    /// Blocks the thread until the semaphore is [`incremented`] or the duration `d` expires.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the OS function fails or if the semaphore was abandoned.
+    /// Returns an error if the OS function fails.
     ///
-    /// [`increment`]: #method.increment
-    fn wait(&self, d: Duration) -> WaitableResult {
+    /// [`incremented`]: struct.Semaphore.html#method.increment
+    fn wait(&self, d: Duration) -> Result<WaitableResult, ()> {
         let ms = d.as_millis();
         debug_assert!(ms <= std::u32::MAX as u128);
         let ms = ms as u32;
 
-        self.wait_internal(ms)
+        self.wait_impl(ms).map_err(|_| ())
     }
 
-    /// Blocks the thread until the semaphore is [`increment`]'ed.
+    /// Blocks the thread until the semaphore is [`incremented`].
     ///
-    /// Because at most one thread is woken up when the semaphore is [`increment`]'ed,
+    /// Because at most one thread is woken up when the semaphore is [`incremented`],
     /// there's no guarantee any given thread will wake up when there are multiple
     /// threads waiting for one semaphore.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the OS function fails or if the semaphore was abandoned.
+    /// Returns an error if the OS function fails.
     ///
-    /// [`increment`]: #method.increment
-    fn wait_infinite(&self) {
-        self.wait_internal(INFINITE);
+    /// [`incremented`]: struct.Semaphore.html#method.increment
+    fn wait_infinite(&self) -> Result<(), ()> {
+        self.wait_impl(INFINITE).map(|_| ()).map_err(|_| ())
     }
 
+    /// Returns the raw handle / pointer to the waitable's OS object.
     fn handle(&self) -> *mut () {
         self.handle as *mut ()
     }
 }
 
 #[cfg(test)]
-use std::{sync::Arc, thread, time::Instant};
-
-#[cfg(test)]
 mod tests {
-    use super::*;
-
-    use crate::waitable::wait_for_all;
+    use {
+        super::*,
+        crate::wait_for_all,
+        std::{sync::Arc, thread, time::Instant},
+    };
 
     #[test]
     fn signaled_method() {
-        let s = Semaphore::new(1, 1, None); // Signaled.
+        let s = Semaphore::new(1, 1, None).unwrap(); // Signaled.
 
-        let res = s.wait(Duration::from_secs(1_000_000)); // Not signaled.
+        let res = s.wait(Duration::from_secs(1_000_000)).unwrap(); // Not signaled.
         assert!(res == WaitableResult::Signaled);
 
-        let res = s.wait(Duration::from_millis(1)); // Not signaled.
+        let res = s.wait(Duration::from_millis(1)).unwrap(); // Not signaled.
         assert!(res == WaitableResult::Timeout);
 
         s.increment_one().unwrap(); // Signaled again.
 
-        let res = s.wait(Duration::from_secs(1_000_000)); // Not signaled.
+        let res = s.wait(Duration::from_secs(1_000_000)).unwrap(); // Not signaled.
         assert!(res == WaitableResult::Signaled);
 
         s.increment_one().unwrap(); // Signaled again.
 
-        let error = s.increment_one(); // Must have failed.
-
-        assert!(error.is_err());
+        s.increment_one().err().unwrap(); // Must have failed.
     }
 
     #[test]
     fn signaled_free_function() {
-        let s = Semaphore::new(1, 1, None); // Signaled.
-        let w = [&s as &dyn Waitable];
+        let s = Semaphore::new(1, 1, None).unwrap(); // Signaled.
+        let w = [&s as _];
 
-        let res = wait_for_all(&w, Duration::from_secs(1_000_000)); // Not signaled.
+        let res = wait_for_all(&w, Duration::from_secs(1_000_000)).unwrap(); // Not signaled.
         assert!(res == WaitableResult::Signaled);
 
-        let res = wait_for_all(&w, Duration::from_millis(1)); // Not signaled.
+        let res = wait_for_all(&w, Duration::from_millis(1)).unwrap(); // Not signaled.
         assert!(res == WaitableResult::Timeout);
 
         s.increment_one().unwrap(); // Signaled again.
 
-        let res = wait_for_all(&w, Duration::from_secs(1_000_000)); // Not signaled.
+        let res = wait_for_all(&w, Duration::from_secs(1_000_000)).unwrap(); // Not signaled.
         assert!(res == WaitableResult::Signaled);
 
-        s.increment_one().unwrap(); // Not signaled.
+        s.increment_one().unwrap(); // Signaled again.
 
-        let error = s.increment_one(); // Signaled again.
-
-        assert!(error.is_err()); // Must have failed.
+        s.increment_one().err().unwrap(); // Must have failed.
     }
 
     #[test]
     fn unsignaled_method() {
-        let s = Semaphore::new(0, 1, None); // Not signaled.
+        let s = Semaphore::new(0, 1, None).unwrap(); // Not signaled.
 
-        let res = s.wait(Duration::from_millis(1));
+        let res = s.wait(Duration::from_millis(1)).unwrap();
         assert!(res == WaitableResult::Timeout);
 
         s.increment_one().unwrap(); // Now signaled.
 
-        let res = s.wait(Duration::from_secs(1_000_000)); // Not signaled.
+        let res = s.wait(Duration::from_secs(1_000_000)).unwrap(); // Not signaled.
         assert!(res == WaitableResult::Signaled);
 
         s.increment_one().unwrap(); // Signaled again.
 
-        let res = s.wait(Duration::from_secs(1_000_000)); // Not signaled.
+        let res = s.wait(Duration::from_secs(1_000_000)).unwrap(); // Not signaled.
         assert!(res == WaitableResult::Signaled);
 
-        let error = s.increment(2); // Must have failed.
-
-        assert!(error.is_err());
+        s.increment(2).err().unwrap(); // Must have failed.
     }
 
     #[test]
     fn unsignaled_free_function() {
-        let s = Semaphore::new(0, 1, None); // Not signaled.
-        let w = [&s as &dyn Waitable];
+        let s = Semaphore::new(0, 1, None).unwrap(); // Not signaled.
+        let w = [&s as _];
 
-        let res = wait_for_all(&w, Duration::from_millis(1)); // Not signaled.
+        let res = wait_for_all(&w, Duration::from_millis(1)).unwrap(); // Not signaled.
         assert!(res == WaitableResult::Timeout);
 
         s.increment_one().unwrap(); // Now signaled.
 
-        let res = wait_for_all(&w, Duration::from_secs(1_000_000)); // Not signaled.
+        let res = wait_for_all(&w, Duration::from_secs(1_000_000)).unwrap(); // Not signaled.
         assert!(res == WaitableResult::Signaled);
 
         s.increment_one().unwrap(); // Signaled again.
 
-        let res = wait_for_all(&w, Duration::from_secs(1_000_000)); // Not signaled.
+        let res = wait_for_all(&w, Duration::from_secs(1_000_000)).unwrap(); // Not signaled.
         assert!(res == WaitableResult::Signaled);
 
-        let error = s.increment(2); // Must have failed.
-
-        assert!(error.is_err());
+        s.increment(2).err().unwrap(); // Must have failed.
     }
 
     #[test]
     fn thread_signal() {
-        let s = Arc::new(Semaphore::new(0, 2, None)); // Not signaled.
+        let s = Arc::new(Semaphore::new(0, 2, None).unwrap()); // Not signaled.
         let s_clone_1 = s.clone();
         let s_clone_2 = s.clone();
 
         let t_1 = thread::spawn(move || {
             let now = Instant::now();
-            let res = s_clone_1.wait(Duration::from_secs(1_000_000));
+            let res = s_clone_1.wait(Duration::from_secs(1_000_000)).unwrap();
             let elapsed = now.elapsed();
             (res, elapsed)
         });
 
         let t_2 = thread::spawn(move || {
             let now = Instant::now();
-            let res = s_clone_2.wait(Duration::from_secs(1_000_000));
+            let res = s_clone_2.wait(Duration::from_secs(1_000_000)).unwrap();
             let elapsed = now.elapsed();
             (res, elapsed)
         });
@@ -308,7 +305,7 @@ mod tests {
 
         // Not signaled.
 
-        let res = s.wait(Duration::from_millis(1));
+        let res = s.wait(Duration::from_millis(1)).unwrap();
         assert!(res == WaitableResult::Timeout);
     }
 }

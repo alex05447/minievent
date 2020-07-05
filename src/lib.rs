@@ -13,9 +13,10 @@ pub mod event;
 pub mod semaphore;
 pub mod waitable;
 
-pub use crate::event::Event;
-pub use crate::semaphore::Semaphore;
-
-pub use crate::waitable::{
-    max_num_waitables, wait_for_all, wait_for_one, WaitableResult, WaitablesResult,
+pub use {
+    event::{Event, EventError},
+    semaphore::{Semaphore, SemaphoreError},
+    waitable::{
+        max_num_waitables, wait_for_all, wait_for_one, Waitable, WaitableResult, WaitablesResult,
+    },
 };

@@ -1,11 +1,15 @@
-use std::time::Duration;
-
-use winapi::shared::winerror::WAIT_TIMEOUT;
-use winapi::um::synchapi::WaitForMultipleObjectsEx;
-use winapi::um::winbase::WAIT_OBJECT_0;
-use winapi::um::winnt::{HANDLE, MAXIMUM_WAIT_OBJECTS};
-
-use super::{Waitable, WaitableResult, WaitablesResult};
+use {
+    crate::{Waitable, WaitableResult, WaitablesResult},
+    std::time::Duration,
+    winapi::{
+        shared::winerror::WAIT_TIMEOUT,
+        um::{
+            synchapi::WaitForMultipleObjectsEx,
+            winbase::WAIT_OBJECT_0,
+            winnt::{HANDLE, MAXIMUM_WAIT_OBJECTS},
+        },
+    },
+};
 
 /// Returns the platfrom-specific maximum number of waitables
 /// accepted by the call to [`wait_for_all`] / [`wait_for_one`].
@@ -21,45 +25,43 @@ pub fn max_num_waitables() -> usize {
 /// Blocks the thread until all waitables are signaled or the duration `d` expires.
 /// Maximum number of waitables is platform-dependant and returned by [`max_num_waitables`].
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics if the OS function fails.
-/// Panics if the len of `waitables` exceeds the value returned by [`max_num_waitables`].
+/// Returns an error if the OS function fails.
+/// Returns an error if the len of `waitables` exceeds the value returned by [`max_num_waitables`].
 ///
 /// [`max_num_waitables`]: fn.max_num_waitables.html
-pub fn wait_for_all(waitables: &[&dyn Waitable], d: Duration) -> WaitableResult {
-    match wait_for_events_internal(waitables, d, true) {
-        WaitablesResult::AllSignaled => WaitableResult::Signaled,
-        WaitablesResult::Timeout => WaitableResult::Timeout,
-        _ => panic!("Wait error."),
+pub fn wait_for_all(waitables: &[&dyn Waitable], d: Duration) -> Result<WaitableResult, ()> {
+    match wait_for_waitables_impl(waitables, d, true) {
+        Ok(WaitablesResult::AllSignaled) => Ok(WaitableResult::Signaled),
+        Ok(WaitablesResult::Timeout) => Ok(WaitableResult::Timeout),
+        _ => Err(()),
     }
 }
 
 /// Blocks the thread until at least one of the waitables are signaled or the duration `d` expires.
 /// Maximum number of waitables is platform-dependant and returned by [`max_num_waitables`].
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics if the OS function fails.
-/// Panics if the len of `waitables` exceeds the value returned by [`max_num_waitables`].
+/// Returns an error if the OS function fails.
+/// Returns an error if the len of `waitables` exceeds the value returned by [`max_num_waitables`].
 ///
 /// [`max_num_waitables`]: fn.max_num_waitables.html
-pub fn wait_for_one(waitables: &[&dyn Waitable], d: Duration) -> WaitablesResult {
-    wait_for_events_internal(waitables, d, false)
+pub fn wait_for_one(waitables: &[&dyn Waitable], d: Duration) -> Result<WaitablesResult, ()> {
+    wait_for_waitables_impl(waitables, d, false)
 }
 
-fn wait_for_events_internal(
+fn wait_for_waitables_impl(
     waitables: &[&dyn Waitable],
     d: Duration,
     wait_for_all: bool,
-) -> WaitablesResult {
+) -> Result<WaitablesResult, ()> {
     let num_waitables = waitables.len();
 
-    assert!(
-        num_waitables <= max_num_waitables(),
-        "Too many simultaneous waitables (max {} supported).",
-        max_num_waitables()
-    );
+    if num_waitables > max_num_waitables() {
+        return Err(());
+    }
 
     let mut handles = [0 as HANDLE; MAXIMUM_WAIT_OBJECTS as usize];
 
@@ -80,13 +82,13 @@ fn wait_for_events_internal(
 
     if result < (WAIT_OBJECT_0 + num_waitables as u32) {
         if wait_for_all {
-            WaitablesResult::AllSignaled
+            Ok(WaitablesResult::AllSignaled)
         } else {
-            WaitablesResult::OneSignaled(result as usize)
+            Ok(WaitablesResult::OneSignaled(result as usize))
         }
     } else if result == WAIT_TIMEOUT {
-        WaitablesResult::Timeout
+        Ok(WaitablesResult::Timeout)
     } else {
-        panic!("Wait error.");
+        Err(())
     }
 }
