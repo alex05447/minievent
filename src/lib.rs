@@ -1,4 +1,7 @@
-//! Thin wrapper around the Windows manual-, auto-reset events and semaphores.
+//! # minievent
+//!
+//! Thin Rust wrapper around the Windows manual-, auto-reset events and semaphores.
+//!
 //! Technically provides a portable API, but implemented only for Windows at the moment.
 //!
 //! See [`event`](https://docs.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createeventa),
@@ -7,7 +10,7 @@
 //!
 //! Run `cargo --doc` for documentation.
 //!
-//! Uses [`winapi`](https://docs.rs/winapi/0.3.8/winapi/) on Windows.
+//! Uses [`winapi`](https://docs.rs/winapi/*/winapi/) on Windows.
 
 pub mod event;
 pub mod semaphore;
