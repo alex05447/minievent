@@ -1,5 +1,5 @@
 use {
-    crate::{SemaphoreError, Waitable, WaitableResult},
+    crate::{SemaphoreError, Waitable, WaitableExt, WaitableResult},
     std::{ffi::CString, io, ptr, time::Duration},
     winapi::{
         shared::{minwindef::TRUE, winerror::WAIT_TIMEOUT},
@@ -157,7 +157,9 @@ impl Waitable for Semaphore {
     fn wait_infinite(&self) -> Result<(), ()> {
         self.wait_impl(INFINITE).map(|_| ()).map_err(|_| ())
     }
+}
 
+impl WaitableExt for Semaphore {
     /// Returns the raw handle / pointer to the waitable's OS object.
     fn handle(&self) -> *mut () {
         self.handle as *mut ()

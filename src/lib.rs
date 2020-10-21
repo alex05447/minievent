@@ -20,6 +20,9 @@ pub use {
     event::{Event, EventError},
     semaphore::{Semaphore, SemaphoreError},
     waitable::{
-        max_num_waitables, wait_for_all, wait_for_one, Waitable, WaitableResult, WaitablesResult,
+        wait_for_one, Waitable, WaitableResult, WaitablesResult,
     },
 };
+
+#[cfg(windows)]
+pub use waitable::{max_num_waitables, wait_for_all, WaitableExt};

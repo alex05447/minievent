@@ -1,5 +1,5 @@
 use {
-    crate::{EventError, Waitable, WaitableResult},
+    crate::{EventError, Waitable, WaitableExt, WaitableResult},
     std::{ffi::CString, io, ptr, time::Duration},
     winapi::{
         shared::{minwindef::FALSE, winerror::WAIT_TIMEOUT},
@@ -160,7 +160,9 @@ impl Waitable for Event {
     fn wait_infinite(&self) -> Result<(), ()> {
         self.wait_impl(INFINITE).map(|_| ()).map_err(|_| ())
     }
+}
 
+impl WaitableExt for Event {
     /// Returns the raw handle / pointer to the waitable's OS object.
     fn handle(&self) -> *mut () {
         self.handle as *mut ()

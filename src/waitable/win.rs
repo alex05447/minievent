@@ -1,5 +1,5 @@
 use {
-    crate::{Waitable, WaitableResult, WaitablesResult},
+    crate::{WaitableResult, WaitablesResult},
     std::time::Duration,
     winapi::{
         shared::winerror::WAIT_TIMEOUT,
@@ -10,6 +10,12 @@ use {
         },
     },
 };
+
+/// Platform-specific waitable object extension trait.
+pub trait WaitableExt {
+    /// Returns the raw handle / pointer to the waitable's OS object.
+    fn handle(&self) -> *mut ();
+}
 
 /// Returns the platfrom-specific maximum number of waitables
 /// accepted by the call to [`wait_for_all`] / [`wait_for_one`].
@@ -31,7 +37,7 @@ pub fn max_num_waitables() -> usize {
 /// Returns an error if the len of `waitables` exceeds the value returned by [`max_num_waitables`].
 ///
 /// [`max_num_waitables`]: fn.max_num_waitables.html
-pub fn wait_for_all(waitables: &[&dyn Waitable], d: Duration) -> Result<WaitableResult, ()> {
+pub fn wait_for_all(waitables: &[&dyn WaitableExt], d: Duration) -> Result<WaitableResult, ()> {
     match wait_for_waitables_impl(waitables, d, true) {
         Ok(WaitablesResult::AllSignaled) => Ok(WaitableResult::Signaled),
         Ok(WaitablesResult::Timeout) => Ok(WaitableResult::Timeout),
@@ -48,12 +54,12 @@ pub fn wait_for_all(waitables: &[&dyn Waitable], d: Duration) -> Result<Waitable
 /// Returns an error if the len of `waitables` exceeds the value returned by [`max_num_waitables`].
 ///
 /// [`max_num_waitables`]: fn.max_num_waitables.html
-pub fn wait_for_one(waitables: &[&dyn Waitable], d: Duration) -> Result<WaitablesResult, ()> {
+pub fn wait_for_one(waitables: &[&dyn WaitableExt], d: Duration) -> Result<WaitablesResult, ()> {
     wait_for_waitables_impl(waitables, d, false)
 }
 
 fn wait_for_waitables_impl(
-    waitables: &[&dyn Waitable],
+    waitables: &[&dyn WaitableExt],
     d: Duration,
     wait_for_all: bool,
 ) -> Result<WaitablesResult, ()> {

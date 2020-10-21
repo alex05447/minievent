@@ -28,13 +28,10 @@ pub trait Waitable {
 
     /// Blocks the thread until the waitable is signaled.
     fn wait_infinite(&self) -> Result<(), ()>;
-
-    /// Returns the raw handle / pointer to the waitable's OS object.
-    fn handle(&self) -> *mut ();
 }
 
 #[cfg(windows)]
 mod win;
 
 #[cfg(windows)]
-pub use win::{max_num_waitables, wait_for_all, wait_for_one};
+pub use win::{max_num_waitables, wait_for_all, wait_for_one, WaitableExt};
